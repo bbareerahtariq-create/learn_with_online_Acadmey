@@ -1,0 +1,302 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel | Learn with Bareerah</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #fff0f6;
+            color: #333;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 30px auto;
+        }
+
+        .box, .record {
+            background: white;
+            padding: 22px;
+            margin-bottom: 18px;
+            border-radius: 12px;
+            box-shadow: 0 3px 12px #00000010;
+        }
+
+        h1, h2 {
+            color: #c2185b;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            margin: 8px 0 16px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+
+        button {
+            padding: 11px 16px;
+            border: none;
+            border-radius: 6px;
+            background: #c2185b;
+            color: white;
+            cursor: pointer;
+        }
+
+        .delete-button {
+            background: #b42318;
+        }
+
+        #message {
+            overflow-wrap: anywhere;
+        }
+
+        [hidden] {
+            display: none !important;
+        }
+
+        .detail {
+            margin: 9px 0;
+            overflow-wrap: anywhere;
+        }
+    </style>
+</head>
+
+<body>
+<div class="container">
+
+    <section class="box" id="loginSection">
+        <h1>Admin Login</h1>
+        <p>Learn with Bareerah Online Academy</p>
+
+        <form id="loginForm">
+            <label for="email">Admin Email</label>
+            <input id="email" type="email"
+                   autocomplete="username" required>
+
+            <label for="password">Password</label>
+            <input id="password" type="password"
+                   autocomplete="current-password" required>
+
+            <button id="loginButton" type="submit">Login</button>
+        </form>
+
+        <p id="message" role="status"></p>
+    </section>
+
+    <section id="adminPanel" hidden>
+        <div class="box">
+            <h1>Admission Records</h1>
+            <p>Yahan students ke admission forms nazar aayenge.</p>
+            <button id="refreshButton" type="button">
+                Refresh Records
+            </button>
+            <button id="logoutButton" type="button">
+                Logout
+            </button>
+            <p id="recordMessage" role="status"></p>
+        </div>
+
+        <div id="recordsList"></div>
+    </section>
+
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyBiLLbHLMuaDIH9zp9QSQrabxRJ2jfexng",
+        authDomain: "learn-with-online-academy.firebaseapp.com",
+        projectId: "learn-with-online-academy",
+        storageBucket: "learn-with-online-academy.firebasestorage.app",
+        messagingSenderId: "717835820217",
+        appId: "1:717835820217:web:92f90a5159e3430d08cf68",
+        measurementId: "G-FHH4Y69PZK"
+    };
+
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    const ADMIN_UID = "pQ93AV97P7dFe76nNZQcNxiSIUh1";
+
+    const loginSection = document.getElementById("loginSection");
+    const adminPanel = document.getElementById("adminPanel");
+    const loginForm = document.getElementById("loginForm");
+    const loginButton = document.getElementById("loginButton");
+    const message = document.getElementById("message");
+    const recordMessage = document.getElementById("recordMessage");
+    const recordsList = document.getElementById("recordsList");
+
+    function showLoginMessage(text, color = "red") {
+        message.textContent = text;
+        message.style.color = color;
+    }
+
+    loginForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+
+        loginButton.disabled = true;
+        loginButton.textContent = "Logging in...";
+        showLoginMessage("");
+
+        try {
+            await auth.signInWithEmailAndPassword(
+                document.getElementById("email").value.trim(),
+                document.getElementById("password").value
+            );
+        } catch (error) {
+            console.error("Login error:", error);
+            showLoginMessage(
+                "Login nahi hua. Email aur password check karein."
+            );
+        } finally {
+            loginButton.disabled = false;
+            loginButton.textContent = "Login";
+        }
+    });
+
+    auth.onAuthStateChanged(async function (user) {
+        if (!user) {
+            loginSection.hidden = false;
+            adminPanel.hidden = true;
+            return;
+        }
+
+        if (user.uid !== ADMIN_UID) {
+            await auth.signOut();
+            showLoginMessage(
+                "Access denied. Ye admin account nahi hai."
+            );
+            return;
+        }
+
+        loginSection.hidden = true;
+        adminPanel.hidden = false;
+
+        await loadAdmissions();
+    });
+
+    async function loadAdmissions() {
+        recordsList.replaceChildren();
+        recordMessage.textContent = "Records load ho rahe hain...";
+
+        try {
+            const snapshot = await db.collection("admissions").get();
+
+            const admissions = snapshot.docs
+                .map(function (doc) {
+                    return {
+                        id: doc.id,
+                        ...doc.data()
+                    };
+                })
+                .filter(function (item) {
+                    return typeof item.studentName === "string";
+                })
+                .sort(function (a, b) {
+                    return String(b.submittedAt || "")
+                        .localeCompare(String(a.submittedAt || ""));
+                });
+
+            if (admissions.length === 0) {
+                recordMessage.textContent =
+                    "Abhi koi student admission record nahi mila.";
+                return;
+            }
+
+            recordMessage.textContent =
+                "Total admissions: " + admissions.length;
+
+            admissions.forEach(function (item) {
+                const card = document.createElement("article");
+                card.className = "record";
+
+                const title = document.createElement("h2");
+                title.textContent = item.studentName;
+                card.appendChild(title);
+
+                const details = [
+                    ["Age", item.studentAge],
+                    ["Student Type", item.studentType],
+                    ["Course", item.course],
+                    ["Contact", item.contact],
+                    ["Preferred Time", item.timing],
+                    ["Message", item.message || "No message"],
+                    ["Submitted At", item.submittedAt || "Not available"]
+                ];
+
+                details.forEach(function (detail) {
+                    const paragraph = document.createElement("p");
+                    paragraph.className = "detail";
+                    paragraph.textContent =
+                        detail[0] + ": " + (detail[1] ?? "Not available");
+                    card.appendChild(paragraph);
+                });
+
+                const deleteButton = document.createElement("button");
+                deleteButton.className = "delete-button";
+                deleteButton.textContent = "Delete Record";
+                deleteButton.type = "button";
+
+                deleteButton.addEventListener("click", async function () {
+                    if (!confirm("Kya aap ye record delete karna chahti hain?")) {
+                        return;
+                    }
+
+                    deleteButton.disabled = true;
+
+                    try {
+                        await db.collection("admissions")
+                            .doc(item.id)
+                            .delete();
+
+                        await loadAdmissions();
+                    } catch (error) {
+                        console.error("Delete error:", error);
+                        recordMessage.textContent =
+                            "Record delete nahi hua. Dobara try karein.";
+                        deleteButton.disabled = false;
+                    }
+                });
+
+                card.appendChild(deleteButton);
+                recordsList.appendChild(card);
+            });
+
+        } catch (error) {
+            console.error("Records load error:", error);
+            recordMessage.textContent =
+                "Records load nahi huay. Internet aur Firebase Rules check karein.";
+        }
+    }
+
+    document.getElementById("refreshButton")
+        .addEventListener("click", loadAdmissions);
+
+    document.getElementById("logoutButton")
+        .addEventListener("click", async function () {
+            await auth.signOut();
+            loginForm.reset();
+            showLoginMessage("Aap logout ho gayi hain.", "green");
+        });
+</script>
+
+</body>
+</html>
